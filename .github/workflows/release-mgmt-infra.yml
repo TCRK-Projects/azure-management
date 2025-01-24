@@ -1,0 +1,44 @@
+name: Release Management Plane Infrastructure
+
+on:
+  push:
+    branches:
+      - main
+    paths: 
+      - src/management-plane/**
+
+permissions:
+  id-token: write
+  contents: write
+  pull-requests: write
+
+jobs:      
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        name: Checkout code
+      - uses: googleapis/release-please-action@v4
+        id: release
+        name: Release Please
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          release-type: 'simple'
+          path: src/management-plane
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+    outputs:
+      VERSION: "${{ steps.release.outputs['src/management-plane--major'] }}.${{ steps.release.outputs['src/management-plane--minor'] }}.${{ steps.release.outputs['src/management-plane--patch'] }}"
+      RELEASE_CREATED: ${{ steps.release.outputs['src/management-plane--release_created'] }}
+
+  deploy-infra:
+    needs: release
+    name: Build Image
+    uses: ./.github/workflows/templates/deploy-bicep.yml
+    if: ${{ needs.release.outputs.RELEASE_CREATED }}
+    with:
+      ENVIRONMENT: 'mgmt-prd'
+      BICEP_FILE: 'src/management-plane/main.bicep'
+      BICEP_PARAMETERS_FILE: 'src/management-plane/params/prd.bicepparam'
+      LOCATION: 'northeurope'
+    secrets: inherit

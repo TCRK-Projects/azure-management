@@ -1,0 +1,136 @@
+name: Deploy Bicep
+
+on:
+  workflow_call:
+    inputs:
+      BICEP_FILE:
+        required: true
+        type: string
+      ENVIRONMENT:
+        required: true
+        type: string
+      LOCATION:
+        required: true
+        type: string
+      BICEP_PARAMETERS:
+        required: false
+        type: string
+        default: ""
+      BICEP_PARAMETERS_FILE:
+        required: false
+        type: string
+        default: ""
+      RESOURCE_GROUP:
+        required: false
+        type: string
+      DEPLOYMENTS_CLEANUP_NUMBER_OF_DAYS:
+        type: number
+        default: 0
+      CONTAINER_APP_RESOURCE_GROUP_NAME:
+        type: string
+        required: false
+    secrets:
+      AZURE_CLIENT_ID:
+        required: true
+      AZURE_TENANT_ID:
+        required: true
+      AZURE_SUBSCRIPTION_ID:
+        required: true
+      BICEP_PARAMETERS_TOKENS:
+        required: false
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  bicep-deploy:
+    name: Bicep Deploy
+    runs-on: self-hosted
+    environment: ${{ inputs.ENVIRONMENT }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Tokenize Bicep Parameters
+        if: ${{ inputs.BICEP_PARAMETERS_FILE != '' }}
+        uses: cschleiden/replace-tokens@v1.3
+        env:
+          ${{ fromJson(secrets.BICEP_PARAMETERS_TOKENS || '{}') }}
+        with:
+          files: ${{ inputs.BICEP_PARAMETERS_FILE }}
+
+      - name: Azure Login
+        uses: azure/login@v2.1.1
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Define Parameters
+        id: parameters
+        shell: pwsh
+        run: |
+          $params = @()
+          if ("${{ inputs.BICEP_PARAMETERS_FILE }}" -ne "") {
+            $params += "--parameters ${{ inputs.BICEP_PARAMETERS_FILE }}"
+          }
+          if ("${{ inputs.BICEP_PARAMETERS }}" -ne "") {
+            $params += " --parameters '${{ inputs.BICEP_PARAMETERS }}'"
+          }
+          echo "parameters=$params" >> $env:GITHUB_OUTPUT
+
+      - name: Bicep Deployment
+        if: ${{ inputs.RESOURCE_GROUP == '' }}
+        shell: pwsh
+        run: |
+          $ContainerApps = "[]"
+
+          if ("${{ inputs.CONTAINER_APP_RESOURCE_GROUP_NAME }}" -ne "") {
+              $ContainerApps = az containerapp list `
+                  --resource-group "${{ inputs.CONTAINER_APP_RESOURCE_GROUP_NAME }}" `
+                  --query "[].{name:name, image:properties.template.containers[0].image}" `
+                  --output json
+          }
+
+          if (-not ($ContainerApps | ConvertFrom-Json)) {
+              $ContainerApps = "[]"
+          }
+
+          Write-Host "ContainerApps: $ContainerApps"
+
+          if ("${{ inputs.CONTAINER_APP_RESOURCE_GROUP_NAME }}" -ne "") {
+              az deployment sub create `
+                  --name deploy-${{ github.run_id }} `
+                  --template-file "${{ inputs.BICEP_FILE }}" `
+                  --location "${{ inputs.LOCATION }}" `
+                  ${{ steps.parameters.outputs.parameters }} `
+                  --parameters "existingContainerConfigurations=$ContainerApps"
+          } else {
+              az deployment sub create `
+                  --name deploy-${{ github.run_id }} `
+                  --template-file "${{ inputs.BICEP_FILE }}" `
+                  --location "${{ inputs.LOCATION }}" `
+                  ${{ steps.parameters.outputs.parameters }}
+          }
+
+      - name: Bicep Deployment
+        if: ${{ inputs.RESOURCE_GROUP != '' }}
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          az deployment group create `
+            --name deploy-${{ github.run_id }} `
+            --template-file ${{ inputs.BICEP_FILE }} `
+            ${{ steps.parameters.outputs.parameters }}
+
+          $ResourceGroup = ${{ inputs.RESOURCE_GROUP}}
+          $NumberOfDays = ${{ inputs.NUMBER_OF_DAYS }}
+
+          $StartDate = (Get-Date).AddDays(-$NumberOfDays).ToString('yyyy-MM-dd')
+          $Deployments = az deployment group list --resource-group $ResourceGroupName --query "[?properties.timestamp<'$StartDate'].name" --output tsv
+
+          foreach ($Deployment in $Deployments) {
+              az deployment group delete --resource-group $ResourceGroupName --name $Deployment --no-wait
+              Write-Output "Deleted deployment $Deployment"
+          }

@@ -34,7 +34,7 @@ jobs:
   deploy-infra:
     needs: release
     name: Build Image
-    uses: ./.github/workflows/templates/deploy-bicep.yml
+    uses: ./.github/workflows/deploy-bicep.yml
     if: ${{ needs.release.outputs.RELEASE_CREATED }}
     with:
       ENVIRONMENT: 'mgmt-prd'

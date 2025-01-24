@@ -24,7 +24,7 @@ var pdnsAppcsName = 'tcrk.privatelink.azconfig.io'
 var linkPdnsAppcsName = 'link-${project}-${environment}-pdns-appcs-${locationShortName}'
 var pdnsKvName = 'tcrk.privatelink.vaultcore.azure.net'
 var linkPdnsKvName = 'link-${project}-${environment}-pdns-kv-${locationShortName}'
-var pdnsSqlServerName = 'tcrk.privatelink.database.windows.net'
+var pdnsSqlServerName = 'tcrk.privatelink.database.windows.net' //TODO: fix warning
 var linkPdnsSqlServer = 'link-${project}-${environment}-pdns-sqlserver-${locationShortName}'
 
 // MARK: Resources

@@ -14,6 +14,4 @@ param tags = {
 param vnetAddressPrefixes = [
   '10.0.0.0/24'
 ]
-param vnetSubnets = [
-   
-]
+param vnetSubnets = []
